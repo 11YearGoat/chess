@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Chess Peak</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.css"/>
+
+<style>
+body {
+  margin:0;
+  background:#0f172a;
+  color:white;
+  font-family:sans-serif;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:100vh;
+}
+
+.container {
+  display:flex;
+  gap:20px;
+  background:#1e293b;
+  padding:20px;
+  border-radius:15px;
+}
+
+#board { width:350px; }
+
+.panel {
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  width:220px;
+}
+
+button, select {
+  padding:10px;
+  border:none;
+  border-radius:8px;
+  background:#3b82f6;
+  color:white;
+  cursor:pointer;
+}
+
+button:hover { background:#2563eb; }
+
+.highlight { background: rgba(255,255,0,0.4) !important; }
+.lastmove { background: rgba(0,255,0,0.3) !important; }
+
+#moves {
+  height:120px;
+  overflow:auto;
+  background:#0f172a;
+  padding:5px;
+  border-radius:8px;
+  font-size:14px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+  <div id="board"></div>
+
+  <div class="panel">
+    <h3>Controls</h3>
+
+    <select id="difficulty">
+      <option value="500">500</option>
+      <option value="700">700</option>
+      <option value="900">900</option>
+      <option value="1100">1100</option>
+      <option value="1300">1300</option>
+    </select>
+
+    <button onclick="resetGame()">New Game</button>
+    <button onclick="flipBoard()">Flip Board</button>
+
+    <div id="status">Playing...</div>
+
+    <h4>Moves</h4>
+    <div id="moves"></div>
+  </div>
+</div>
+
+<audio id="moveSound" src="https://www.soundjay.com/buttons/sounds/button-16.mp3"></audio>
+
+<script>
+var game = new Chess()
+var gameOver = false
+
+var board = Chessboard('board', {
+  draggable: true,
+  position: 'start',
+  onDrop: onDrop,
+  onMouseoverSquare: highlightMoves,
+  onMouseoutSquare: clearHighlights
+})
+
+// ENGINE
+var engine = new Worker("stockfish.js")
+engine.postMessage("uci")
+
+function setSkill() {
+  let elo = document.getElementById("difficulty").value
+  engine.postMessage("setoption name UCI_LimitStrength value true")
+  engine.postMessage("setoption name UCI_Elo value " + elo)
+}
+
+function makeMove() {
+  if (gameOver) return
+
+  setSkill()
+  engine.postMessage("position fen " + game.fen())
+  engine.postMessage("go depth 10")
+}
+
+engine.onmessage = function(e) {
+  let line = e.data
+
+  if (line.startsWith("bestmove") && !gameOver) {
+    let move = line.split(" ")[1]
+
+    let m = game.move({
+      from: move.substring(0,2),
+      to: move.substring(2,4),
+      promotion: 'q'
+    })
+
+    board.position(game.fen())
+    playSound()
+    updateMoves()
+    highlightLastMove(m)
+    updateStatus()
+  }
+}
+
+function onDrop(source, target) {
+  if (gameOver) return 'snapback'
+
+  let move = game.move({
+    from: source,
+    to: target,
+    promotion: 'q'
+  })
+
+  if (move === null) return 'snapback'
+
+  playSound()
+  updateMoves()
+  highlightLastMove(move)
+  updateStatus()
+
+  setTimeout(makeMove, 250)
+}
+
+// 🎯 highlight legal moves
+function highlightMoves(square) {
+  let moves = game.moves({ square: square, verbose: true })
+
+  for (let m of moves) {
+    document.querySelector('.square-' + m.to)?.classList.add('highlight')
+  }
+}
+
+function clearHighlights() {
+  document.querySelectorAll('.highlight').forEach(e => e.classList.remove('highlight'))
+}
+
+// 🟢 last move
+function highlightLastMove(move) {
+  document.querySelectorAll('.lastmove').forEach(e => e.classList.remove('lastmove'))
+
+  document.querySelector('.square-' + move.from)?.classList.add('lastmove')
+  document.querySelector('.square-' + move.to)?.classList.add('lastmove')
+}
+
+// 📜 move list
+function updateMoves() {
+  document.getElementById("moves").innerText = game.pgn()
+}
+
+// 📊 game status
+function updateStatus() {
+  let s = ""
+
+  if (game.in_checkmate()) { s="Checkmate 💀"; gameOver=true }
+  else if (game.in_stalemate()) { s="Stalemate 🤝"; gameOver=true }
+  else if (game.in_draw()) { s="Draw 🤝"; gameOver=true }
+  else if (game.in_check()) { s="Check ⚠️" }
+  else s="Playing..."
+
+  document.getElementById("status").innerText = s
+}
+
+// 🔊 sound
+function playSound() {
+  document.getElementById("moveSound").play()
+}
+
+// 🔁 reset
+function resetGame() {
+  game.reset()
+  board.start()
+  gameOver = false
+  updateMoves()
+  updateStatus()
+}
+
+// 🔄 flip
+function flipBoard() {
+  board.flip()
+}
+</script>
+
+</body>
+</html>
